@@ -1,0 +1,79 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"net"
+	"simpleRPC"
+	"sync"
+	"time"
+)
+
+func startServer(addr chan string) {
+	// 监听, :0是使用随机端口
+	l, err := net.Listen("tcp", ":12345")
+	if err != nil {
+		log.Fatal("network error:", err)
+	}
+	log.Println("start rpc server on", l.Addr())
+	addr <- l.Addr().String()
+	simpleRPC.Accept(l)
+}
+
+func main() {
+	addr := make(chan string)
+	// 启动一个服务监听程序
+	go startServer(addr)
+
+	// 客户端代码 <-addr 监听那个ip:port就请求那个ip:port, 这样写方便点
+	// conn, _ := net.Dial("tcp", <-addr)
+	client, _ := simpleRPC.Dial("tcp", <-addr)
+	defer func() {
+		// _ = conn.Close()
+		_ = client.Close()
+	}()
+
+	time.Sleep(time.Second)
+
+	/*
+	// 先把option写入buffer，等flush再发送
+	_ = json.NewEncoder(conn).Encode(simpleRPC.DefaultOption)
+	cc := codec.NewGobCodec(conn)
+
+	for i := 0; i < 5; i ++ {
+	    // time.Sleep(time.Millisecond)
+		h := &codec.Header{
+			ServiceMethod: "Foo.Sum",
+			Seq: uint64(i),
+		}
+
+		// 发送header和body
+		_ = cc.Write(h, fmt.Sprintf("simplerpc req %d", h.Seq))
+
+		// 不知为啥ReadHeader(h)有时候会阻塞，看评论说是tcp粘包了
+		// 解惑：原因就是option和header body粘包了
+		// 读取服务端返回的response的header
+		_ = cc.ReadHeader(h)
+		var reply string
+		// 读取服务端返回的response的body
+		_ = cc.ReadBody(&reply)
+		log.Println("reply:", reply)
+	}
+	*/
+
+	// 发送请求&接受响应
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i ++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := fmt.Sprintf("simplerppc req %d", i)
+			var reply string
+			if err := client.Call("Foo.Sum", args, &reply); err != nil {
+				log.Fatal("call Foo.Sum error:", err)
+			}
+			log.Println("reply:", reply)
+		}(i)
+	}
+	wg.Wait()
+}
